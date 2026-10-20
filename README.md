@@ -1,40 +1,75 @@
 ### 프로젝트 설명
 ---
-리그 오브 레전드 LCK 경기 정보를 크롤링하여, 사용자가 선호하는 팀의 경기 일정과 순위를 한눈에 확인할 수 있도록 만든 서비스입니다.
+리그 오브 레전드 LCK 경기 정보를 크롤링하여 제공하는 서비스를 구현했습니다. 경기 정보를 수집하는 방식과 데이터 갱신 주기를 설계하고, 선호 팀의 경기 일정 및 시작 시점에 맞춰 FCM (Firebase Cloud Messaging)으로 알림을 전송하는 기능의 구현에 중점을 두었습니다.<br><br>
 
-사용자가 다른 일을 하더라도 경기 시작을 놓치지 않도록, 크롬 알림을 통해 경기 시작 전 알림을 받을 수 있도록 개발하였습니다.<br><br>
-
-개발 과정 블로그<br>
-https://velog.io/@ayeah77/series/Lck-%EA%B2%BD%EA%B8%B0-%EC%A0%95%EB%B3%B4-%EC%A0%9C%EA%B3%B5-%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8-%ED%81%AC%EB%A1%A4%EB%A7%81
-
-<br>
+Blog : https://velog.io/@ayeah77/series/Lck-경기-정보-제공-프로젝트-크롤링<br>
 
 ### 기술 스택
 ---
-- BackEnd : SpringBoot, Spring Data Jpa
-  
-- FrontEnd : React.js, JavaScript
-  
-- DataBase : MySQL
-  
-- ETC : Google Firebase<br><br>
+Backend : Java, Spring Boot, Spring Data JPA, Spring Security
 
-### 기능
+Frontend : React.js, JavaScript
+
+Database : MySQL
+
+Auth : JWT, Google OAuth2
+
+Etc : Selenium WebDriver, Firebase ( push 알림 )<br><br>
+
+### 아키텍처
 ---
-- JWT와 Oauth를 사용한 로그인
-  
-- 2025 월 별 LCK 경기 일정 제공 ( 네이버 e 스포츠 크롤링 )
-  
-- 2025 LCK 팀 순위 제공 ( 네이버 e 스포츠 크롤링 )
-  
-- 사용자가 선호하는 팀 선택 후, FCM을 사용하여 선호하는 팀의 경기를 크롬 브라우저 알림을 통해 제공<br>
-  ( 자정에 한 번, 경기 시작 3시간 전부터 1시간마다, 10분 전 )<br><br>
+<img width="1902" height="901" alt="image" src="https://github.com/user-attachments/assets/115f8077-c12c-454b-9939-ad173ed5b429" /><br><br>
 
 
-### 개선 여부
+### 구현
+---
+- Selenium 기반 LCK 데이터 수집 파이프라인
+    
+    LCK 일정과 순위는 공식 API가 없고, 페이지가 JavaScript로 렌더링되어 HTML만 받아오는 Jsoup으로는 데이터를 가져올 수 없었습니다. 따라서, 실제 브라우저로 페이지를 렌더링하는 Selenium으로 크롤링했습니다. 매 주기마다 전체를 덮어쓰지 않고 변경된 데이터만 저장, 갱신하여 불필요한 DB 쓰기를 줄였습니다.
+    
+- CompletableFuture 기반 병렬 크롤링
+    
+    일정과 순위 크롤링은 서로 독립적인데도 순차로 실행되고 있어, 두 작업을 병렬로 실행하도록 개선했습니다. 결과를 블로킹으로 기다려야 하는 `Future`와 달리, 여러 작업의 완료를 조합하고 작업별 예외를 처리할 수 있는 `CompletableFuture`를 사용했습니다. 그 결과 전체 크롤링 시간을 평균 `3,708ms에서 2,742ms로 약 26%` 단축했습니다.
+    
+- FCM 기반 선호 팀 경기 알림
+    
+    경기 시작 알림은 전달 시점이 중요하므로 이메일 대신 즉시 전달할 수 있는 푸시 알림을 선택했습니다. FCM을 활용해 플랫폼별 별도 구현 없이 다양한 기기에 알림을 전송하도록 구현했습니다.
+    
+- Spring Security 기반 JWT 인증과 OAuth 2.0 소셜 로그인을 구현했습니다
+- JUnit 기반 단위 테스트
+    
+    크롤링과 FCM처럼 외부에 의존하는 부분은 실행할 때마다 결과가 달라질 수 있어, 이를 분리하고 핵심 비즈니스 로직만 단위 테스트로 검증했습니다.<br><br>
+
+
+### 트러블슈팅
 ---  
-- LCK 일정, 순위 데이터를 순차적으로 크롤링하면 불필요한 시간이 소요되므로 CompletableFuture를 사용하여 비동기적 크롤링 통해 시간을 단축하였습니다.<br>
-  ( 크롤링 10번 평균 ) 동기 : 2,590ms , 비동기 : 1,984ms → 시간 소요 약 23% 감소<br><br>
+- I/O-bound 크롤링을 위한 전용 스레드 풀 분리
+    
+    [ 상황 ]
+    
+    `CompletableFuture`를 활용하여 Selenium 크롤링 작업을 비동기로 처리하고 있었습니다.
+    
+    [ 문제 ]
+    
+    별도의 실행 풀을 지정하지 않아 작업이 `ForkJoinPool.commonPool()`에서 실행되었고, Selenium의 네트워크 I/O 동안 스레드가 점유되었습니다. 이로 인해 I/O-bound 작업이 공용 스레드 풀의 스레드를 장시간 점유할 수 있는 문제가 있었습니다.
+    
+    [ 해결 ]
+    
+    크롤링 작업을 위한 전용 `ThreadPoolTaskExecutor`를 구성하고 `CompletableFuture`가 해당 풀을 사용하도록 변경했습니다. 이를 통해 크롤링 작업과 다른 비동기 작업의 실행 자원을 분리했습니다.
+    
+- 트랜잭션 자기 호출 문제 해결
+    
+    [ 상황 ]
+    
+    서비스 로직의 일부 메서드에 `@Transactional`을 적용하여 트랜잭션 단위를 관리하고 있었습니다.
+    
+    [ 문제 ]
+    
+    `@Transactional`이 적용된 메서드를 동일 클래스의 다른 메서드에서 직접 호출하는 자기 호출 방식으로 사용하면서, Spring AOP 프록시를 거치지 않아 트랜잭션이 적용되지 않는 문제가 발생했습니다.
+    
+    [ 해결 ]
+    
+    트랜잭션이 필요한 로직을 별도의 클래스로 분리하고 해당 클래스를 통해 호출하도록 변경함으로써, Spring AOP 프록시를 거쳐 `@Transactional`이 정상적으로 적용되도록 개선했습니다.<br><br>
 
 ### 페이지
 ---
