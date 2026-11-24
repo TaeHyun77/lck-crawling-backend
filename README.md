@@ -18,7 +18,7 @@ Etc : Selenium WebDriver, Firebase ( push 알림 )<br><br>
 
 ### 아키텍처
 ---
-<img width="1902" height="901" alt="image" src="https://github.com/user-attachments/assets/115f8077-c12c-454b-9939-ad173ed5b429" /><br><br>
+<img width="1586" height="683" alt="image" src="https://github.com/user-attachments/assets/4b401142-e6d2-4743-bd08-f30a3b194915" /><br><br>
 
 
 ### 구현
